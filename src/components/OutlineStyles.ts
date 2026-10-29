@@ -46,7 +46,7 @@ export const Item = styled.li<{ $leaving?: boolean; $departing?: boolean; $arriv
     > ${Row} .tiptap { pointer-events: none; }
     > ${Row} .tiptap::selection, > ${Row} .tiptap *::selection { background: transparent; color: inherit; }
   `}
-  @media(pointer: coarse) { touch-action: pan-y; }
+  @media(pointer: coarse) { touch-action: pan-x pan-y; }
 `;
 // How long a branch takes to grow. Anything following that growth, such as
 // scrolling a parent up to reveal its children, shares the same window.

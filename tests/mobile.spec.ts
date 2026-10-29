@@ -28,7 +28,7 @@ test('a touch is answered by the page rather than by the browser', async ({ page
   await page.goto('/');
   // No grey flash painted over whatever was tapped, including the entry rows,
   // which are not buttons.
-  expect(await page.evaluate(() => getComputedStyle(document.documentElement).webkitTapHighlightColor))
+  expect(await page.evaluate(() => getComputedStyle(document.documentElement).getPropertyValue('-webkit-tap-highlight-color')))
     .toBe('rgba(0, 0, 0, 0)');
   expect(await page.evaluate(() => getComputedStyle(document.documentElement).webkitTextSizeAdjust)).toBe('100%');
 

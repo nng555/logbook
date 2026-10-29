@@ -54,6 +54,8 @@ const HiddenTagOption = styled.span`
   position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
 `;
 type TagSuggestion = { from: number; to: number; query: string; names: string[]; index: number; left: number; top: number };
+const KEYBOARD_BAR_WIDTH = 92;
+const KEYBOARD_BAR_HEIGHT = 44;
 type MobileFormatState = { left: number; top: number; width: number; entry: boolean; bold: boolean; italic: boolean; underline: boolean; code: boolean; link: boolean };
 const MobileFormatBar = styled.div<{ $left: number; $top: number; $width: number }>`
   position: fixed; z-index: 39; left: ${({ $left }) => $left}px; top: ${({ $top }) => $top}px; width: ${({ $width }) => $width}px;
@@ -147,6 +149,9 @@ export function RichTextEditor({ ref, value, tags: entryTags, label, readOnly, d
   const { tags } = useJournalContext();
   const [suggestion, setSuggestion] = useState<TagSuggestion | null>(null);
   const [mobileFormat, setMobileFormat] = useState<MobileFormatState | null>(null);
+  // A phone keyboard has no Tab key, so while an entry is being written on a
+  // touch screen a small bar above the keyboard indents and outdents it.
+  const [keyboardBar, setKeyboardBar] = useState<{ left: number; top: number } | null>(null);
   const suggestionRef = useRef<TagSuggestion | null>(null);
   const suggest = (next: TagSuggestion | null) => { suggestionRef.current = next; setSuggestion(next); };
   const callbacks = useRef({ onChange, onBlur, onKeyDown, onEnter, onBoundary, onVerticalBoundary, onHorizontalBoundary, onSelectDocument, onSelectEntry, onDeleteEntry, onShift });
@@ -480,8 +485,10 @@ export function RichTextEditor({ ref, value, tags: entryTags, label, readOnly, d
       if (!editor.state.selection.empty || editor.state.selection.from !== linkReplacement.current?.to) linkReplacement.current = null;
       updateSuggestion(editor);
       updateMobileFormat(editor);
+      updateKeyboardBar(editor);
     },
-    onBlur({ event }) { linkPrefix.current = null; linkReplacement.current = null; previousSelectAll.current = false; suggest(null); setMobileFormat(null); if (!linkOpen.current) { if (editor) commitTypedTags(editor, true); callbacks.current.onBlur(event); } },
+    onFocus({ editor }) { updateKeyboardBar(editor); },
+    onBlur({ event }) { linkPrefix.current = null; linkReplacement.current = null; previousSelectAll.current = false; suggest(null); setMobileFormat(null); setKeyboardBar(null); if (!linkOpen.current) { if (editor) commitTypedTags(editor, true); callbacks.current.onBlur(event); } },
   });
 
   const updateMobileFormat = (current: Editor) => {
@@ -503,6 +510,25 @@ export function RichTextEditor({ ref, value, tags: entryTags, label, readOnly, d
     const top = above >= viewportTop + 8 ? above : Math.min(Math.max(from.bottom, to.bottom) + 8, viewportBottom - 52);
     setMobileFormat({ left, top, width, entry, bold: current.isActive('bold'), italic: current.isActive('italic'), underline: current.isActive('underline'), code: current.isActive('code'), link: current.isActive('link') });
   };
+
+  const updateKeyboardBar = (current: Editor) => {
+    if (!touchScreen() || readOnly || !callbacks.current.onShift || !current.isFocused || !current.state.selection.empty) { setKeyboardBar(null); return; }
+    // Pinned to the bottom right of what is visible, which is just above the
+    // keyboard while it is open.
+    const viewport = window.visualViewport;
+    const left = (viewport?.offsetLeft ?? 0) + (viewport?.width ?? window.innerWidth) - KEYBOARD_BAR_WIDTH - 8;
+    const top = (viewport?.offsetTop ?? 0) + (viewport?.height ?? window.innerHeight) - KEYBOARD_BAR_HEIGHT - 8;
+    setKeyboardBar(previous => previous?.left === left && previous.top === top ? previous : { left, top });
+  };
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!keyboardBar || !viewport || !editor) return;
+    const follow = () => updateKeyboardBar(editor);
+    viewport.addEventListener('resize', follow);
+    viewport.addEventListener('scroll', follow);
+    return () => { viewport.removeEventListener('resize', follow); viewport.removeEventListener('scroll', follow); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [keyboardBar !== null, editor]);
 
   const updateSuggestion = (current: Editor) => {
     const { $from, empty, from } = current.state.selection;
@@ -737,6 +763,12 @@ export function RichTextEditor({ ref, value, tags: entryTags, label, readOnly, d
         <MobileFormatButton type="button" $active={false} aria-label="Outdent entry" onClick={() => callbacks.current.onShift?.(true)}><IndentDecrease size={16} aria-hidden="true" /></MobileFormatButton>
         <MobileFormatButton type="button" $active={false} aria-label="Indent entry" onClick={() => callbacks.current.onShift?.(false)}><IndentIncrease size={16} aria-hidden="true" /></MobileFormatButton>
       </>}
+    </MobileFormatBar>}
+    {keyboardBar && !mobileFormat && <MobileFormatBar role="toolbar" aria-label="Indentation" data-keyboard-bar
+      $left={keyboardBar.left} $top={keyboardBar.top} $width={KEYBOARD_BAR_WIDTH}
+      onPointerDown={event => event.preventDefault()}>
+      <MobileFormatButton type="button" $active={false} aria-label="Outdent entry" onClick={() => callbacks.current.onShift?.(true)}><IndentDecrease size={18} aria-hidden="true" /></MobileFormatButton>
+      <MobileFormatButton type="button" $active={false} aria-label="Indent entry" onClick={() => callbacks.current.onShift?.(false)}><IndentIncrease size={18} aria-hidden="true" /></MobileFormatButton>
     </MobileFormatBar>}
     {suggestion && <TagCompletion id="tag-suggestions" role="listbox" aria-label="Tags" $left={suggestion.left} $top={suggestion.top}>
       <HiddenTagOption id="tag-option-0" role="option" aria-selected={suggestion.index === 0} aria-label={`#${suggestion.names[0]}`}>#{suggestion.names[0]}</HiddenTagOption>

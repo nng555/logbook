@@ -15,7 +15,6 @@ import type { SearchHit } from './components/SearchModal';
 import { documentUndo, historyShortcutDirection, recordCompletion } from './documentHistory';
 import { LOG_WASH_HEIGHT, compactViewport, narrowViewport, shortViewport } from './layout';
 import { usePager } from './usePager';
-import { useEntryGestures } from './useEntryGestures';
 import { entryError } from './entryFeedback';
 import { ENTRY_LINK_EVENT, ENTRY_LINK_PATTERN, entryLinkLabel, parseEntryLink, type EntryLink } from './entryLinks';
 import { EntryLabelProvider, markdownText } from './markdown';
@@ -181,10 +180,10 @@ const MobilePager = styled.div`
 const MobilePane = styled.section`
   flex: 0 0 100%; width: 100%; max-width: 100%; min-width: 0; min-height: 0; overflow-x: clip; overflow-y: auto;
   display: flex; flex-direction: column; scrollbar-width: none;
-  /* Across is the page turning, down is the pane scrolling, and the turn is
-     carried by the drag the pane reads rather than by the browser, so a drag
-     that starts anywhere on a pane turns the page the same way. */
-  touch-action: pan-y;
+  /* Across is the page turning, down is the pane scrolling. Both are left to
+     the browser, which locks the axis, carries momentum and snaps one page
+     per swipe far more naturally than a drag read by hand. */
+  touch-action: pan-x pan-y;
   scroll-snap-align: start; scroll-snap-stop: always; contain: inline-size;
   padding: 0;
   &::-webkit-scrollbar { display: none; }
@@ -241,9 +240,9 @@ const LogViewport = styled.div`
   padding: 30px 12px 24px 8px; scrollbar-width: thin; scrollbar-color: var(--scrollbar) transparent;
   @media ${compactViewport} {
     min-height: 0; padding: 24px 2px 10px 0; scrollbar-width: none;
-    /* A touch that starts on the entries scrolls them and never turns the
-       page, so neither gesture has to be guessed at. */
-    touch-action: pan-y;
+    /* The entries scroll down and the pager behind them turns across; the
+       browser decides which from the direction of the drag. */
+    touch-action: pan-x pan-y;
     &::-webkit-scrollbar { display: none; }
   }
 `;
@@ -323,13 +322,6 @@ export default function App({ locked = false, load = !locked, onReady, onLoadErr
   const [hasHoverSidebar, setHasHoverSidebar] = useState(() => window.matchMedia('(hover: hover) and (pointer: fine)').matches);
   const viewportWidth = useRef(window.innerWidth);
   const { pagerRef: mobilePager, selectView: selectMobileView, trackScroll: trackMobileScroll, view: mobileView } = usePager(views, rememberedPane(), paged);
-  // The panes read a drag of their own, so the room between the entries turns
-  // the page as readily as the entries do.
-  const {
-    startEntryGesture: startPageSwipe, trackEntryGesture: trackPageSwipe,
-    finishEntryGesture: finishPageSwipe, cancelEntryGesture: cancelPageSwipe,
-    consumeClick: consumePageSwipeClick,
-  } = useEntryGestures();
   const [sessionsDate, setSessionsDate] = useState<string | null>(null);
   const [timerBusy, setTimerBusy] = useState(false);
   const [timerIntent, setTimerIntent] = useState<'start' | 'stop' | null>(null);
@@ -766,7 +758,7 @@ export default function App({ locked = false, load = !locked, onReady, onLoadErr
     onPointerMoveCapture={event => turnPage(event.clientX)}
     onClickCapture={event => {
       // The drag has already answered; the tap it ends with is not meant.
-      if (turning.current?.turned || consumePageSwipeClick()) { event.preventDefault(); event.stopPropagation(); }
+      if (turning.current?.turned) { event.preventDefault(); event.stopPropagation(); }
       turning.current = null;
     }}
     onPointerUpCapture={() => { if (!turning.current?.turned) turning.current = null; }}>
@@ -789,14 +781,7 @@ export default function App({ locked = false, load = !locked, onReady, onLoadErr
               onClick={() => selectMobileView(view)}>{view}</MobileTab>)}
           </MobileTabs>
         </ShortHeader>
-        <MobilePager ref={mobilePager} data-testid="mobile-pager" data-mobile-pager onScroll={event => trackMobileScroll(event.currentTarget)}
-          onPointerDown={event => {
-            // A drag anywhere on a pane turns the page. An entry carries the
-            // same gesture itself, so a drag that starts on one is left to it.
-            if (event.target instanceof Element && event.target.closest('[data-entry-gesture-key]')) return;
-            startPageSwipe(event, event.currentTarget);
-          }}
-          onPointerMove={trackPageSwipe} onPointerUp={finishPageSwipe} onPointerCancel={cancelPageSwipe}>
+        <MobilePager ref={mobilePager} data-testid="mobile-pager" data-mobile-pager onScroll={event => trackMobileScroll(event.currentTarget)}>
           {views.map(view => <MobilePane key={view} id={`mobile-panel-${view}`} role="tabpanel"
             aria-labelledby={`mobile-tab-${view}`} aria-hidden={mobileView !== view} inert={mobileView !== view}>{pane(view)}</MobilePane>)}
         </MobilePager>

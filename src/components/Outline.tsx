@@ -7,7 +7,7 @@ import { VisuallyHidden } from '../styles';
 import { MarkdownContent, documentWithTags, entryText, formatDocument, markdownText, mergeEntries, pastedEntry, replaceEntryRange, serializeEntry, withTags } from '../markdown';
 import { RichTextEditor, type RichTextHandle, type TextOffsets, type VerticalDirection } from './RichTextEditor';
 import { documentUndo, editDocument, historyShortcutDirection } from '../documentHistory';
-import { useEntryGestures, type EntrySelection } from '../useEntryGestures';
+import type { EntrySelection } from '../useEntryGestures';
 import { OutlineDocument } from '../outlineDocument';
 import { entryError } from '../entryFeedback';
 import { entryLinkUrl } from '../entryLinks';
@@ -894,7 +894,6 @@ export function Outline({ kind, items: serverItems, day, composer = false, archi
       focus();
     } catch (error) { entryError(error); restoringFocus.current = false; }
   };
-  const { startEntryGesture, trackEntryGesture, finishEntryGesture, cancelEntryGesture, consumeClick } = useEntryGestures();
   const advance = () => {
     if (lock.current) return;
     const snapshot = current.current;
@@ -1054,7 +1053,6 @@ export function Outline({ kind, items: serverItems, day, composer = false, archi
       $arriving={item.kind === 'tasks' && (completed.has(item.id) || reopened.has(item.id))}>
       <Row>{renderMarker(item.id, item.content)}<Text $done={!!item.completed_at && !archived} $action={archived && item.kind === 'tasks'} role="group" tabIndex={0} aria-label={markdownText(item.content, hiddenTagsFor(item.tags)) || (item.tags ?? []).filter(tag => tag !== activeTag).map(tag => '#' + tag).join(' ') || (item.kind === 'tasks' ? 'Empty task' : 'Empty note')}
         onClick={event => {
-          if (consumeClick()) return;
           if (selectedEntryRanges().length > 1) return;
           if ((archived || !item.completed_at) && !(event.target as HTMLElement).closest('a')) void select(item, event.currentTarget);
         }}
@@ -1161,8 +1159,7 @@ export function Outline({ kind, items: serverItems, day, composer = false, archi
     const entry = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-entry-gesture-key]') : null;
     const gestureKey = entry?.dataset.entryGestureKey;
     if (gestureKey !== entrySelectionRef.current?.key) updateEntrySelection(null);
-    if (entry) startEntryGesture(event, entry);
-  }} onPointerMove={trackEntryGesture} onPointerUp={finishEntryGesture} onPointerCancel={cancelEntryGesture} onCopyCapture={event => {
+  }} onCopyCapture={event => {
     if (selectionActive.current) {
       event.preventDefault(); event.stopPropagation(); copyEntries(event.clipboardData);
       return;

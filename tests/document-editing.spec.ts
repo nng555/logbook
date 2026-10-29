@@ -296,13 +296,18 @@ test('a touch swipe over an entry changes panes, holding it or not', async ({ br
     const row = mobile.locator(`[data-kind="tasks"][data-item-id="${second.id}"]`).first();
     await expect(row).toBeInViewport();
     await expect.poll(() => mobile.getByTestId('mobile-pager').evaluate(element => element.scrollLeft)).toBe(0);
-    let pointerId = 7;
+    // Real touches, so the browser's own scrolling turns the page.
+    const session = await context.newCDPSession(mobile);
     const swipe = async (from: number, to: number, hold = false) => {
-      pointerId += 1;
-      await row.dispatchEvent('pointerdown', { pointerType: 'touch', pointerId, isPrimary: true, clientX: from, clientY: 180 });
+      const box = (await row.boundingBox())!;
+      const y = box.y + box.height / 2;
+      const point = (x: number, dy = 0) => ({ x, y: y + dy, id: 0, radiusX: 1, radiusY: 1, force: 1 });
+      await session.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [point(from)] });
       if (hold) await mobile.waitForTimeout(400);
-      await row.dispatchEvent('pointermove', { pointerType: 'touch', pointerId, isPrimary: true, clientX: (from + to) / 2, clientY: 182 });
-      await row.dispatchEvent('pointerup', { pointerType: 'touch', pointerId, isPrimary: true, clientX: to, clientY: 184 });
+      for (let step = 1; step <= 5; step++) {
+        await session.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [point(from + (to - from) * step / 5, step / 2)] });
+      }
+      await session.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     };
     const nesting = async () => ((await (await request.get('/api/export')).json()).tasks as Array<{ id: number; parent_id: number | null }>)
       .find(task => task.id === second.id)?.parent_id;

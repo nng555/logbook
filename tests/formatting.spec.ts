@@ -78,6 +78,36 @@ test('a whole-entry selection adds indent and outdent to the mobile toolbar', as
   }
 });
 
+test('while writing on a touch screen, a bar above the keyboard stands in for Tab', async ({ browser, baseURL, request }) => {
+  const { today } = await (await request.get('/api/journal?timezone=America/Los_Angeles')).json();
+  await request.post('/api/notes', { data: { date: today, content: 'Keyboard parent' } });
+  const child = await (await request.post('/api/notes', { data: { date: today, content: 'Keyboard child' } })).json();
+  const context = await browser.newContext({ baseURL: baseURL!, viewport: { width: 440, height: 700 }, hasTouch: true });
+  const mobile = await context.newPage();
+  try {
+    await mobile.goto('/');
+    const bar = mobile.getByRole('toolbar', { name: 'Indentation', exact: true });
+    await mobile.getByRole('group', { name: 'Keyboard child', exact: true }).click();
+    const editor = mobile.getByRole('textbox', { name: 'Edit note', exact: true });
+    await expect(editor).toBeFocused();
+    await expect(bar).toBeVisible();
+    const parentOf = async (id: number) => (await rows(mobile, 'notes')).find(row => row.id === id)?.parent_id;
+
+    await bar.getByRole('button', { name: 'Indent entry', exact: true }).click();
+    await expect.poll(() => parentOf(child.id)).not.toBe(null);
+    // The entry is still being written: the bar never takes the focus.
+    await expect(mobile.getByRole('textbox', { name: 'Edit note', exact: true })).toBeFocused();
+    await bar.getByRole('button', { name: 'Outdent entry', exact: true }).click();
+    await expect.poll(() => parentOf(child.id)).toBe(null);
+
+    // Done writing: the keyboard goes, and the bar with it.
+    await mobile.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await expect(bar).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
 for (const kind of ['notes', 'tasks'] as const) {
   test(`link boundaries follow words while interior spaces stay linked in ${kind}`, async ({ page, request }) => {
     const { today } = await (await request.get('/api/journal?timezone=America/Los_Angeles')).json();
