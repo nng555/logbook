@@ -21,8 +21,12 @@ export class OutlineDocument {
   failed = (_error: unknown, _ids: number[]) => {};
   refresh: () => Promise<void> = async () => {};
 
-  constructor(key: string) {
+  // The day this outline files new notes under, when it is one day's page.
+  private day?: string;
+
+  constructor(key: string, day?: string) {
     this.storageKey = `still-pending-edits:${key}`;
+    this.day = day;
     const saved = readOutlineRecovery(this.storageKey);
     this.edits = saved.edits;
     this.aliases = new Map(saved.aliases);
@@ -139,9 +143,15 @@ export class OutlineDocument {
           let results;
           try { results = await send(); }
           catch (error) {
-            if (!(error instanceof ApiError) || error.status !== 409) throw error;
+            if (!(error instanceof ApiError) || (error.status !== 409 && error.status !== 404)) throw error;
             await this.refresh();
             await new Promise<void>(resolve => requestAnimationFrame(() => resolve()));
+            if (error.status === 404 && !this.salvage(edit)) {
+              this.edits.shift();
+              this.persist();
+              this.changed();
+              continue;
+            }
             results = await send();
           }
           results.forEach((row, index) => {
@@ -165,6 +175,50 @@ export class OutlineDocument {
     };
     this.pending = work().finally(() => { this.pending = null; });
     return this.pending;
+  }
+
+  // The server no longer has an entry this edit points at, most often one
+  // deleted on another device while this one was offline. Sending it again
+  // would fail forever and hold back every edit behind it, so it is rewritten
+  // against what is there now: text written into a lost entry comes back as a
+  // new one at the end of the page, a new entry whose neighbours are gone goes
+  // there too, and a move of something gone is let go. The original is kept
+  // for recovery. Returns false when nothing is left to send.
+  private salvage(edit: PendingEdit): boolean {
+    storage.setItem(`still-recovery:${this.storageKey}:${crypto.randomUUID()}`, JSON.stringify(edit));
+    const present = (id: number | null | undefined) => {
+      const resolved = this.resolve(id ?? null);
+      return resolved === null || resolved < 0 || this.base.some(row => row.id === resolved);
+    };
+    const replaced = new Map<number, number>();
+    const changes = edit.changes.flatMap((change): OutlineChange[] => {
+      const row = this.base.find(item => item.id === this.resolve(change.id));
+      if (change.type === 'delete') return [change];
+      if (change.type === 'move') return row && [change.parent_id, change.after_id, change.before_id].every(present) ? [{ ...change, kind: row.kind }] : [];
+      if (change.type === 'update') {
+        // Still here, filed as the other kind: say so and the edit goes through.
+        if (row) return [{ ...change, kind: row.kind }];
+        if (change.kind === 'notes' && !this.day) return [];
+        const id = this.allocate();
+        replaced.set(change.id, id);
+        return [{ ...change, id, type: 'create', client_id: crypto.randomUUID(),
+          date: change.kind === 'notes' ? this.day : undefined, parent_id: null, after_id: null, before_id: null }];
+      }
+      // A parent is looked up as the new entry's own kind.
+      const parent = this.resolve(change.parent_id ?? null);
+      const parentFits = parent === null || parent < 0 || this.base.some(item => item.id === parent && item.kind === change.kind);
+      if (parentFits && [change.after_id, change.before_id].every(present)) return [change];
+      return [{ ...change, parent_id: null, after_id: null, before_id: null }];
+    });
+    // Later edits to a lost entry now go to the one standing in for it.
+    const swap = (id: number | null | undefined) => id == null ? id : replaced.get(id) ?? id;
+    for (const later of this.edits) if (later !== edit) later.changes = later.changes.map(change =>
+      change.type === 'delete' || change.type === 'update' ? { ...change, id: swap(change.id)! }
+        : { ...change, id: swap(change.id)!, parent_id: swap(change.parent_id) ?? null, after_id: swap(change.after_id), before_id: swap(change.before_id) });
+    edit.changes = changes;
+    edit.requestId = crypto.randomUUID();
+    this.persist();
+    return changes.length > 0;
   }
 
   private requestChange(change: OutlineChange): DocumentChange {

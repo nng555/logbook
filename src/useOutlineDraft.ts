@@ -98,9 +98,13 @@ export function useOutlineDraft({ key, documentStore, items, defaultKind, compos
   }, [documentStore, stageDraft]);
   useEffect(() => {
     const retry = () => { void documentStore.flush().catch(() => {}); };
+    // A phone can find its connection again without saying so, so coming back
+    // to the page is a reason to try again too.
+    const shown = () => { if (document.visibilityState === 'visible') retry(); };
     retry();
     window.addEventListener('online', retry);
-    return () => window.removeEventListener('online', retry);
+    document.addEventListener('visibilitychange', shown);
+    return () => { window.removeEventListener('online', retry); document.removeEventListener('visibilitychange', shown); };
   }, [documentStore]);
 
   useEffect(() => registerDraftFlush(save), [save]);
@@ -129,8 +133,12 @@ export function useOutlineDraft({ key, documentStore, items, defaultKind, compos
   useEffect(() => {
     mounted.current = true;
     const flush = () => { void save().catch(() => {}); };
+    // A phone puts the app away without closing the page, and pagehide never
+    // comes, so being hidden is when the entry being written is sent.
+    const hidden = () => { if (document.visibilityState === 'hidden') flush(); };
     window.addEventListener('pagehide', flush);
-    return () => { mounted.current = false; window.removeEventListener('pagehide', flush); flush(); };
+    document.addEventListener('visibilitychange', hidden);
+    return () => { mounted.current = false; window.removeEventListener('pagehide', flush); document.removeEventListener('visibilitychange', hidden); flush(); };
   }, [save]);
   return { blank, draft, current, records, persist, stageDraft, save, saving };
 }

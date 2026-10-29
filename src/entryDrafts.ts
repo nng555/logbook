@@ -1,4 +1,4 @@
-import { editEntries } from './api';
+import { ApiError, editEntries } from './api';
 import { entryDocument, entryKind } from './apiDecoders';
 import { siblingEntries } from './entryTree';
 import { preserveRecovery, readStored, storage } from './storage';
@@ -91,7 +91,14 @@ export function recoverEarlierDrafts(today: string): Promise<boolean> {
         } else {
           change = { kind: draft.kind, id: draft.id, content: draft.content, tags: draft.tags, expected_revision: draft.revision };
         }
-        await editEntries([change], draft.requestId);
+        try { await editEntries([change], draft.requestId); }
+        catch (error) {
+          // The entry was removed elsewhere while this edit waited. What was
+          // written into it comes back as a new entry at the end of that day.
+          if (!(error instanceof ApiError) || error.status !== 404 || draft.id === null || !('content' in change)) throw error;
+          await editEntries([{ kind: draft.kind, content: draft.content, tags: draft.tags, date: key.slice('still-draft-'.length),
+            client_id: crypto.randomUUID(), parent_id: null }], crypto.randomUUID());
+        }
         changed = true;
         // An editor may have saved newer text while this request was running.
         if (storage.getItem(key) === JSON.stringify(draft)) storage.removeItem(key);

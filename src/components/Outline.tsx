@@ -75,7 +75,7 @@ function scrollingParent(element: HTMLElement): HTMLElement | null {
 export function Outline({ kind, items: serverItems, day, composer = false, archived = false, scope, refresh }: Props) {
   const defaultKind: EntryKind = kind === 'mixed' ? 'notes' : kind;
   const key = scope ? `still-outline-${kind}-${scope}` : kind === 'tasks' ? 'still-outline-tasks' : `still-draft-${day}`;
-  const [documentStore] = useState(() => new OutlineDocument(key));
+  const [documentStore] = useState(() => new OutlineDocument(key, day));
   const [, renderDocument] = useState(0);
   const items = documentStore.rebase(serverItems);
   const { activeTag, completed, onComplete, reopened, onReopen, target } = useJournalContext();
